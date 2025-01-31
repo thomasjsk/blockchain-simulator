@@ -4,8 +4,10 @@ mod cli;
 mod miner;
 mod miners_pool;
 
+use crate::block::Block;
 use clap::{Parser, Subcommand};
 use std::io::Write;
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use std::{io, thread};
@@ -27,7 +29,8 @@ fn main() {
     // let blockchain = Arc::new(Mutex::new(blockchain::Blockchain::new()));
     let mut blockchain = blockchain::Blockchain::new();
 
-    let (block_mined_tx, block_mined_rx) = mpsc::channel();
+    let (block_mined_tx, block_mined_rx): (Sender<(Block, u32)>, Receiver<(Block, u32)>) =
+        mpsc::channel();
 
     let miner_pool = Arc::new(Mutex::new(miners_pool::MinersPool::new(block_mined_tx)));
 
@@ -60,37 +63,57 @@ fn main() {
                         .parse::<u32>()
                         .expect("Invalid difficulty");
 
+                    let blocks: u32 = _matches
+                        .get_one::<String>("blocks")
+                        .unwrap_or(&"1".to_string())
+                        .parse::<u32>()
+                        .expect("Invalid blocks number");
+
                     println!("Simulating mining with difficulty {}...", difficulty);
                     blockchain.difficulty = difficulty;
 
-                    blockchain.mempool = vec!["foo".to_string(), "bar".to_string()];
-                    miner_pool.lock().unwrap().start_mining(blockchain.clone());
+                    for i in 0..blocks {
+                        blockchain.mempool = vec!["foo".to_string(), "bar".to_string()];
+                        miner_pool.lock().unwrap().start_mining(blockchain.clone());
+                        println!("Mining block: {} of {}", i, blocks);
+                        loop {
+                            if let Ok((block, miner_id)) = block_mined_rx.try_recv() {
+                                if block.index == blockchain.chain.last().unwrap().index {
+                                    continue;
+                                }
 
-                    loop {
-                        if let Ok(block) = block_mined_rx.try_recv() {
-                            if block.index == blockchain.chain.last().unwrap().index {
-                                continue;
+                                println!("Block was mined: {:?}", block.index);
+                                miner_pool.lock().unwrap().stop_mining();
+                                miner_pool.lock().unwrap().reward(miner_id);
+
+                                blockchain.mempool = vec![];
+                                blockchain.add_block(block);
+                                println!("\nValid: {}", blockchain.is_valid());
+                                println!("Blocks mined: {}", blockchain.chain.len());
+                                println!(">>Blocks");
+                                println!("...");
+                                let start = if blockchain.chain.len() >= 5 {
+                                    blockchain.chain.len() - 5
+                                } else {
+                                    0
+                                };
+                                for i in start..&blockchain.chain.len() - 1 {
+                                    let block = &blockchain.chain[i];
+                                    println!("Index: {}", block.index);
+                                    println!("Hash: {}", block.hash);
+                                    println!("Nonce: {}", block.nonce);
+                                    println!();
+                                }
+                                println!("Miners:");
+                                for miner in &miner_pool.lock().unwrap().miners {
+                                    println!("#{:2}; coins: {}", miner.id, miner.coins);
+                                }
+
+                                break;
                             }
 
-                            println!("Block was mined: {:?}", block.index);
-                            miner_pool.lock().unwrap().stop_mining();
-
-                            blockchain.mempool = vec![];
-                            blockchain.add_block(block);
-                            println!("\nValid: {}", blockchain.is_valid());
-                            println!("Blocks mined: {}", blockchain.chain.len());
-                            println!(">>Blocks");
-                            for block in &blockchain.chain {
-                                println!("Index: {}", block.index);
-                                println!("Hash: {}", block.hash);
-                                println!("Nonce: {}", block.nonce);
-                                println!();
-                            }
-
-                            break;
+                            thread::sleep(Duration::from_millis(100));
                         }
-
-                        thread::sleep(Duration::from_millis(100));
                     }
                 }
                 Some(("miners", _matches)) => {

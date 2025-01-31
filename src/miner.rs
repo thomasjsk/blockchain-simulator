@@ -8,12 +8,17 @@ use std::thread::JoinHandle;
 
 pub struct Miner {
     pub id: u32,
-    pub block_mined_tx: Sender<Block>,
+    pub block_mined_tx: Sender<(Block, u32)>,
+    pub coins: u32,
 }
 
 impl Miner {
-    pub fn new(id: u32, block_mined_tx: Sender<Block>) -> Self {
-        Miner { id, block_mined_tx }
+    pub fn new(id: u32, block_mined_tx: Sender<(Block, u32)>) -> Self {
+        Miner {
+            id,
+            block_mined_tx,
+            coins: 0,
+        }
     }
 
     pub fn mine_block(&self, blockchain: Blockchain, terminator: Receiver<()>) -> JoinHandle<()> {
@@ -21,7 +26,7 @@ impl Miner {
         let block_mined_tx = self.block_mined_tx.clone();
 
         thread::spawn(move || {
-            println!("Miner #{} is mining...", miner_id);
+            // println!("Miner #{} is mining...", miner_id);
 
             // Get the latest blockchain state
             let prev_block = blockchain.chain.last().unwrap();
@@ -30,7 +35,7 @@ impl Miner {
             let mut nonce = rand::rng().random(); // Generate random nonce
             loop {
                 if terminator.try_recv().is_ok() {
-                    println!("Miner #{} aborting mining process", miner_id);
+                    // println!("Miner #{} aborting mining process", miner_id);
                     break;
                 }
 
@@ -43,7 +48,7 @@ impl Miner {
                     nonce,
                 ) {
                     println!("Miner #{} found the block", miner_id);
-                    block_mined_tx.send(block).unwrap();
+                    block_mined_tx.send((block, miner_id)).unwrap();
 
                     break;
                 }

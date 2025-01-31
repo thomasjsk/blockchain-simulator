@@ -8,11 +8,11 @@ use std::sync::mpsc::Sender;
 pub struct MinersPool {
     pub miners: Vec<Miner>,
     mining_terminators: Vec<Sender<()>>,
-    block_mined_tx: Sender<Block>,
+    block_mined_tx: Sender<(Block, u32)>,
 }
 
 impl MinersPool {
-    pub fn new(block_mined_tx: Sender<Block>) -> Self {
+    pub fn new(block_mined_tx: Sender<(Block, u32)>) -> Self {
         MinersPool {
             miners: vec![],
             mining_terminators: vec![],
@@ -78,5 +78,11 @@ impl MinersPool {
         }
 
         return;
+    }
+
+    pub fn reward(&mut self, miner_id: u32) {
+        if let Some(miner) = self.miners.iter_mut().find(|m| m.id == miner_id) {
+            miner.coins += 1;
+        }
     }
 }
